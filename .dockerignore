@@ -1,0 +1,17 @@
+.git
+tmp/
+bin/
+storage/logs/
+storage/uploads/
+*.md
+.env
+.env.*
+.codegraph/
+go.work.local
+go.work.local.sum
+junkit/
+.DS_Store
+.vscode/
+.idea/
+*.test
+*.out
