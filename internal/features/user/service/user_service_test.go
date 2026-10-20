@@ -83,11 +83,12 @@ func (f *fakeStorage) DeleteFile(ctx context.Context, fileURL string) error {
 // fakeSessionRevoker records which users had their sessions revoked.
 type fakeSessionRevoker struct {
 	revoked []uuid.UUID
+	err     error
 }
 
 func (f *fakeSessionRevoker) RevokeUserSessions(_ context.Context, uid uuid.UUID) error {
 	f.revoked = append(f.revoked, uid)
-	return nil
+	return f.err
 }
 
 // newTestUserService builds a UserService with a fast bcrypt hasher and a no-op session revoker.
@@ -511,6 +512,22 @@ func TestUserService_UpdateUser_DeactivationRevokesSessions(t *testing.T) {
 
 	if len(revoker.revoked) != 1 || revoker.revoked[0] != userID {
 		t.Errorf("revoked = %v, want [%v]", revoker.revoked, userID)
+	}
+}
+
+func TestUserService_UpdateUser_DeactivationPropagatesRevokeError(t *testing.T) {
+	wantErr := errors.New("revoke failed")
+	inactive := domain.UserStatusInactive
+	repo := &fakeUserRepository{
+		UpdateFunc: func(_ context.Context, uid uuid.UUID, _ domain.UpdateUserInput) (*domain.User, error) {
+			return &domain.User{UUID: uid, Status: domain.UserStatusInactive}, nil
+		},
+	}
+	svc, revoker := newTestUserServiceWithRevoker(t, repo, &fakeStorage{})
+	revoker.err = wantErr
+
+	if _, err := svc.UpdateUser(context.Background(), uuid.New(), domain.UpdateUserInput{Status: &inactive}); !errors.Is(err, wantErr) {
+		t.Fatalf("UpdateUser() error = %v, want %v", err, wantErr)
 	}
 }
 

@@ -134,6 +134,6 @@ func runRemove(data scaffold.FeatureData, importPath, moduleLine string) {
 	console.Warnf("Dropping a table is destructive, so finish the database cleanup by hand:")
 	console.Infof("1. make migrate-down            — rolls back the last migration, dropping the %q table from your database", data.Table)
 	console.Infof("2. rm %s   — deletes the now-orphaned migration files", strings.Join(migrationFiles, " "))
-	console.Infof("3. make sqlc                     — regenerates internal/database/primary/sqlc so %q is removed from models.go", data.Pascal)
+	console.Infof("3. make sqlc                     — regenerates internal/database/primary/sqlc so %q is removed from models.go", data.Model)
 	console.Successf("Feature %q removed", data.Name)
 }

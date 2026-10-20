@@ -424,7 +424,7 @@ func newTestEnv(t *testing.T, opts ...envOption) *testEnv {
 		opt(cfg, &p)
 	}
 
-	sessionCache := infrastructure.NewSessionCache(cache.Options{Driver: cache.DriverMemory}, cfg)
+	sessionCache := infrastructure.NewSessionCache(cache.Options{Driver: cache.DriverMemory}, cfg, zap.NewNop())
 	p.Cache = sessionCache
 	p.Guard = infrastructure.NewLoginGuard(infrastructure.LoginGuardParams{
 		CacheOptions: cache.Options{Driver: cache.DriverMemory},

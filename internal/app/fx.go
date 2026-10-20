@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -283,11 +284,17 @@ func provideNotificationOptions(cfg *config.Config) notification.Options {
 	return notification.Options{TelegramChatID: cfg.Telegram.ChatID, Environment: cfg.Environment}
 }
 
-// provideRecaptchaOptions builds recaptcha.Options from cfg.Recaptcha.
-func provideRecaptchaOptions(cfg *config.Config) recaptcha.Options {
+// provideRecaptchaOptions builds recaptcha.Options from cfg.Recaptcha; the mock is never used
+// in production.
+func provideRecaptchaOptions(cfg *config.Config) (recaptcha.Options, error) {
+	production := cfg.Environment == "production"
+	if production && cfg.Auth.RecaptchaOnLogin && cfg.Recaptcha.SecretKey == "" {
+		return recaptcha.Options{}, errors.New("RECAPTCHA_SECRET_KEY: required in production when AUTH_RECAPTCHA_ON_LOGIN=true")
+	}
+
 	return recaptcha.Options{
 		SecretKey: cfg.Recaptcha.SecretKey,
 		MinScore:  cfg.Recaptcha.MinScore,
-		Mock:      cfg.Recaptcha.Mock,
-	}
+		Mock:      cfg.Recaptcha.Mock && !production,
+	}, nil
 }

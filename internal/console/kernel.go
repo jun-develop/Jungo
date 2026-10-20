@@ -19,11 +19,18 @@ type Params struct {
 	Shutdowner fx.Shutdowner
 }
 
-// RunSelected registers an Fx OnStart hook to dispatch the CLI command and shut down.
+// RunSelected registers an Fx OnStart hook to dispatch the CLI command and shut down. The command
+// context outlives the OnStart deadline and is cancelled on stop (SIGINT/SIGTERM or Shutdown).
 func RunSelected(p Params, lc fx.Lifecycle) {
+	ctx, cancel := context.WithCancel(context.Background())
+
 	lc.Append(fx.Hook{
-		OnStart: func(ctx context.Context) error {
+		OnStart: func(context.Context) error {
 			go dispatch(ctx, p)
+			return nil
+		},
+		OnStop: func(context.Context) error {
+			cancel()
 			return nil
 		},
 	})

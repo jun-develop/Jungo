@@ -66,7 +66,9 @@ func (s *UserService) UpdateUser(ctx context.Context, uid uuid.UUID, input domai
 	}
 
 	if !user.IsActive() {
-		s.revokeSessions(ctx, uid)
+		if err := s.revokeSessions(ctx, uid); err != nil {
+			return nil, err
+		}
 	}
 
 	return user, nil
@@ -80,9 +82,7 @@ func (s *UserService) DeleteUser(ctx context.Context, uid uuid.UUID) error {
 		return err
 	}
 
-	s.revokeSessions(ctx, uid)
-
-	return nil
+	return s.revokeSessions(ctx, uid)
 }
 
 // UploadAvatar uploads a new avatar and updates the user record.
@@ -139,9 +139,12 @@ func hasAvatar(user *domain.User) bool {
 	return user.AvatarURL != nil && *user.AvatarURL != ""
 }
 
-// revokeSessions ends the user's sessions (best-effort: auth also rejects inactive users).
-func (s *UserService) revokeSessions(ctx context.Context, uid uuid.UUID) {
-	if s.sessions != nil {
-		_ = s.sessions.RevokeUserSessions(ctx, uid)
+// revokeSessions ends the user's sessions. Its error is returned: until revoked, a cached session
+// keeps the user's old active status for up to AUTH_SESSION_CACHE_TTL.
+func (s *UserService) revokeSessions(ctx context.Context, uid uuid.UUID) error {
+	if s.sessions == nil {
+		return nil
 	}
+
+	return s.sessions.RevokeUserSessions(ctx, uid)
 }

@@ -293,8 +293,8 @@ func (r *{{.Pascal}}Repository) Delete(ctx context.Context, uid uuid.UUID) error
 	return nil
 }
 
-// map{{.Pascal}} converts a generated sqlc.{{.Pascal}} row to the domain model.
-func map{{.Pascal}}(row sqlc.{{.Pascal}}) *domain.{{.Pascal}} {
+// map{{.Pascal}} converts a generated sqlc.{{.Model}} row to the domain model.
+func map{{.Pascal}}(row sqlc.{{.Model}}) *domain.{{.Pascal}} {
 	return &domain.{{.Pascal}}{
 		UUID:      row.UUID,
 		Name:      row.Name,
@@ -624,7 +624,7 @@ import (
 	"{{.Module}}/internal/features/{{.Name}}/domain"
 )
 
-// Create{{.Pascal}}Request is the request body for POST /{{.Table}}.
+// Create{{.Pascal}}Request is the request body for POST /{{.Plural}}.
 type Create{{.Pascal}}Request struct {
 	Name   string {{"` + "`" + `"}}json:"name" binding:"required,min=2,max=150"{{"` + "`" + `"}}
 	Status int16  {{"` + "`" + `"}}json:"status" binding:"omitempty,oneof=1 2"{{"` + "`" + `"}}
@@ -640,7 +640,7 @@ func ToCreate{{.Pascal}}Input(req Create{{.Pascal}}Request) domain.Create{{.Pasc
 	return domain.Create{{.Pascal}}Input{Name: req.Name, Status: status}
 }
 
-// Update{{.Pascal}}Request is the request body for PATCH /{{.Table}}/:uuid.
+// Update{{.Pascal}}Request is the request body for PATCH /{{.Plural}}/:uuid.
 type Update{{.Pascal}}Request struct {
 	Name   *string {{"` + "`" + `"}}json:"name" binding:"omitempty,min=2,max=150"{{"` + "`" + `"}}
 	Status *int16  {{"` + "`" + `"}}json:"status" binding:"omitempty,oneof=1 2"{{"` + "`" + `"}}
@@ -727,7 +727,7 @@ func New{{.Pascal}}Handler(service domain.{{.Pascal}}Service, responder response
 	return &{{.Pascal}}Handler{service: service, responder: responder, validator: validator}
 }
 
-// Create{{.Pascal}} handles POST /{{.Table}}.
+// Create{{.Pascal}} handles POST /{{.Plural}}.
 func (h *{{.Pascal}}Handler) Create{{.Pascal}}(ctx *gin.Context) {
 	var req v1dto.Create{{.Pascal}}Request
 	if err := ctx.ShouldBindJSON(&req); err != nil {
@@ -744,7 +744,7 @@ func (h *{{.Pascal}}Handler) Create{{.Pascal}}(ctx *gin.Context) {
 	h.responder.SendWithData(ctx, http.StatusCreated, "{{.Name}}_created", v1dto.New{{.Pascal}}Response(item))
 }
 
-// Get{{.Pascal}} handles GET /{{.Table}}/:uuid.
+// Get{{.Pascal}} handles GET /{{.Plural}}/:uuid.
 func (h *{{.Pascal}}Handler) Get{{.Pascal}}(ctx *gin.Context) {
 	uid, ok := httpx.ParseUUID(ctx, h.responder, h.validator)
 	if !ok {
@@ -760,7 +760,7 @@ func (h *{{.Pascal}}Handler) Get{{.Pascal}}(ctx *gin.Context) {
 	h.responder.SendWithData(ctx, http.StatusOK, "{{.Name}}_retrieved", v1dto.New{{.Pascal}}Response(item))
 }
 
-// List{{.Pascal}}s handles GET /{{.Table}}.
+// List{{.Pascal}}s handles GET /{{.Plural}}.
 func (h *{{.Pascal}}Handler) List{{.Pascal}}s(ctx *gin.Context) {
 	var req v1dto.List{{.Pascal}}sRequest
 	if err := ctx.ShouldBindQuery(&req); err != nil {
@@ -780,7 +780,7 @@ func (h *{{.Pascal}}Handler) List{{.Pascal}}s(ctx *gin.Context) {
 	h.responder.Pagination(ctx, http.StatusOK, "{{.Name}}s_listed", v1dto.New{{.Pascal}}ResponseList(items), meta)
 }
 
-// Update{{.Pascal}} handles PATCH /{{.Table}}/:uuid.
+// Update{{.Pascal}} handles PATCH /{{.Plural}}/:uuid.
 func (h *{{.Pascal}}Handler) Update{{.Pascal}}(ctx *gin.Context) {
 	uid, ok := httpx.ParseUUID(ctx, h.responder, h.validator)
 	if !ok {
@@ -802,7 +802,7 @@ func (h *{{.Pascal}}Handler) Update{{.Pascal}}(ctx *gin.Context) {
 	h.responder.SendWithData(ctx, http.StatusOK, "{{.Name}}_updated", v1dto.New{{.Pascal}}Response(item))
 }
 
-// Delete{{.Pascal}} handles DELETE /{{.Table}}/:uuid.
+// Delete{{.Pascal}} handles DELETE /{{.Plural}}/:uuid.
 func (h *{{.Pascal}}Handler) Delete{{.Pascal}}(ctx *gin.Context) {
 	uid, ok := httpx.ParseUUID(ctx, h.responder, h.validator)
 	if !ok {
@@ -849,7 +849,7 @@ func (r *{{.Pascal}}Routes) Version() string {
 
 // Register implements router.Routes; every route requires a logged-in user.
 func (r *{{.Pascal}}Routes) Register(group *gin.RouterGroup) {
-	items := group.Group("/{{.Table}}")
+	items := group.Group("/{{.Plural}}")
 	items.Use(middleware.BearerAuth(r.authenticator, r.responder, middleware.BearerAuthOptions{}))
 
 	items.POST("", r.handler.Create{{.Pascal}})

@@ -53,7 +53,7 @@ func RegisterAll(p Params) {
 		p.Responder.Send(ctx, http.StatusNotFound, "api_not_found")
 	})
 	p.Router.NoMethod(func(ctx *gin.Context) {
-		p.Responder.Send(ctx, http.StatusNotFound, "method_not_found")
+		p.Responder.Send(ctx, http.StatusMethodNotAllowed, "method_not_allowed")
 	})
 	p.Router.GET("/health", func(ctx *gin.Context) {
 		p.Responder.Send(ctx, http.StatusOK, "app_running")

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 
 	"github.com/jun-develop/junkit/cache"
 
@@ -24,15 +25,17 @@ type SessionCache struct {
 	sessions      cache.Cache[*cachedSession]
 	invalidations cache.Cache[int64]
 	ttl           time.Duration
+	logger        *zap.Logger
 	now           func() time.Time
 }
 
 // NewSessionCache creates a SessionCache using the app's cache driver.
-func NewSessionCache(opts cache.Options, cfg *config.Config) *SessionCache {
+func NewSessionCache(opts cache.Options, cfg *config.Config, logger *zap.Logger) *SessionCache {
 	return &SessionCache{
 		sessions:      cache.New[*cachedSession](opts),
 		invalidations: cache.New[int64](opts),
 		ttl:           cfg.Auth.SessionCacheTTL,
+		logger:        logger,
 		now:           time.Now,
 	}
 }
@@ -68,7 +71,10 @@ func (c *SessionCache) InvalidateFamily(ctx context.Context, familyUUID uuid.UUI
 	}
 
 	// 2x TTL: a slow load can write its entry after the marker.
-	_ = c.invalidations.Set(ctx, familyKey(familyUUID), c.now().UnixNano(), 2*c.ttl)
+	// A missed marker keeps cached sessions of a revoked family valid until their TTL.
+	if err := c.invalidations.Set(ctx, familyKey(familyUUID), c.now().UnixNano(), 2*c.ttl); err != nil {
+		c.logger.Error("session cache: invalidate family failed", zap.String("family_uuid", familyUUID.String()), zap.Error(err))
+	}
 }
 
 // stale reports whether entry was loaded before its family was last invalidated.

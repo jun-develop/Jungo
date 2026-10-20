@@ -83,10 +83,11 @@ type RedisConfig struct {
 	DB       int    `env:"REDIS_DB" envDefault:"0"`
 }
 
-// StorageConfig configures file upload storage paths and URLs.
+// StorageConfig configures file upload storage paths and URLs. An empty BaseURL follows
+// API_SERVER_PORT (http://localhost:<port>/uploads).
 type StorageConfig struct {
 	BaseDir string `env:"STORAGE_BASE_DIR" envDefault:"./storage/uploads"`
-	BaseURL string `env:"STORAGE_BASE_URL" envDefault:"http://localhost:8080/uploads"`
+	BaseURL string `env:"STORAGE_BASE_URL"`
 }
 
 // TelegramConfig configures Telegram notification settings.
@@ -134,8 +135,8 @@ type Config struct {
 	Language    string `env:"API_LANGUAGE" envDefault:"en"`
 	Timezone    string `env:"API_TIMEZONE" envDefault:"UTC"`
 
-	TracerDebugKey   string `env:"TRACER_DEBUG_KEY" envDefault:"t_debug"`
-	TracerDebugValue string `env:"TRACER_DEBUG_VALUE" envDefault:"0604"`
+	TracerDebugKey   string `env:"TRACER_DEBUG_KEY"`
+	TracerDebugValue string `env:"TRACER_DEBUG_VALUE"`
 
 	DB        DatabaseConfig
 	CORS      CORSConfig
@@ -172,6 +173,10 @@ func NewConfig() *Config {
 	cfg := &Config{}
 	if err := env.Parse(cfg); err != nil {
 		panic(fmt.Errorf("load configuration: %w", err))
+	}
+
+	if cfg.Storage.BaseURL == "" {
+		cfg.Storage.BaseURL = "http://localhost:" + cfg.ServerPort + "/uploads"
 	}
 
 	instance = cfg

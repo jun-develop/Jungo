@@ -80,7 +80,7 @@ func NewAuthService(p Params) *AuthService {
 // Flow: recaptcha -> brute-force check -> verify password -> check status -> create/rotate session
 func (s *AuthService) Login(ctx context.Context, input domain.LoginInput) (*domain.TokenPair, error) {
 	meta := input.Metadata
-	email := strings.TrimSpace(input.Email)
+	email := input.Email
 
 	if s.cfg.RecaptchaOnLogin && s.recaptcha != nil {
 		if err := s.recaptcha.Verify(ctx, meta.RecaptchaToken, meta.IPAddress); err != nil {
