@@ -185,8 +185,8 @@ const updateUser = `-- name: UpdateUser :one
 UPDATE users SET
     first_name   = COALESCE($1, first_name),
     last_name    = COALESCE($2, last_name),
-    phone_number = COALESCE($3, phone_number),
-    avatar_url   = COALESCE($4, avatar_url),
+    phone_number = NULLIF(COALESCE($3, phone_number), ''),
+    avatar_url   = NULLIF(COALESCE($4, avatar_url), ''),
     status       = COALESCE($5, status)
 WHERE uuid = $6 AND deleted_at IS NULL
 RETURNING id, uuid, email, password_hash, first_name, last_name, phone_number, avatar_url, status, created_at, updated_at, deleted_at

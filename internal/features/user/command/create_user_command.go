@@ -8,27 +8,30 @@ import (
 	"os"
 	"strings"
 
+	"github.com/gin-gonic/gin/binding"
+
 	"github.com/jun-develop/junkit/console"
+	"github.com/jun-develop/junkit/validation"
 
 	"jungo/internal/features/user/domain"
+	v1dto "jungo/internal/features/user/dto/v1"
 )
 
-// minPasswordLength mirrors the HTTP API's password minimum.
-const minPasswordLength = 8
-
-// CreateUserCommand creates a user (e.g. the first account); the password is read from
-// stdin when -password is omitted.
+// CreateUserCommand creates a user (e.g. the first account) with the same validation rules as
+// POST /users; the password is read from stdin when -password is omitted.
 //
 // Usage:
 //
 //	make console CMD="user:create" ARGS="-email=admin@example.com -first-name=Admin -last-name=User"
 type CreateUserCommand struct {
 	userService domain.UserService
+	validator   *validation.Validator
 }
 
-// NewCreateUserCommand creates a CreateUserCommand.
-func NewCreateUserCommand(userService domain.UserService) *CreateUserCommand {
-	return &CreateUserCommand{userService: userService}
+// NewCreateUserCommand creates a CreateUserCommand. Taking the validator also makes Fx construct
+// it, which registers the custom rules (password_strong, email_advanced, ...) used below.
+func NewCreateUserCommand(userService domain.UserService, validator *validation.Validator) *CreateUserCommand {
+	return &CreateUserCommand{userService: userService, validator: validator}
 }
 
 // Signature implements console.Command.
@@ -47,10 +50,6 @@ func (c *CreateUserCommand) Run(ctx context.Context, args []string) error {
 		return err
 	}
 
-	if *email == "" || *firstName == "" || *lastName == "" {
-		return fmt.Errorf("-email, -first-name and -last-name are required")
-	}
-
 	if *password == "" {
 		fmt.Print("Password: ")
 		line, err := bufio.NewReader(os.Stdin).ReadString('\n')
@@ -61,16 +60,12 @@ func (c *CreateUserCommand) Run(ctx context.Context, args []string) error {
 		*password = strings.TrimRight(line, "\r\n")
 	}
 
-	if len(*password) < minPasswordLength {
-		return fmt.Errorf("password must be at least %d characters", minPasswordLength)
+	req := v1dto.CreateUserRequest{Email: *email, FirstName: *firstName, LastName: *lastName, Password: *password}
+	if err := binding.Validator.ValidateStruct(req); err != nil {
+		return fmt.Errorf("invalid input: %v", c.validator.GetValidationErrors(nil, err))
 	}
 
-	user, err := c.userService.CreateUser(ctx, domain.CreateUserInput{
-		Email:     *email,
-		FirstName: *firstName,
-		LastName:  *lastName,
-		Password:  *password,
-	})
+	user, err := c.userService.CreateUser(ctx, v1dto.ToCreateUserInput(req))
 	if err != nil {
 		return fmt.Errorf("create user: %w", err)
 	}

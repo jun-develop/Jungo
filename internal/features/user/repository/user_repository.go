@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -11,6 +12,9 @@ import (
 	"jungo/internal/database/primary/sqlc"
 	"jungo/internal/features/user/domain"
 )
+
+// likeEscaper makes a search term match literally inside ILIKE (backslash is the default escape).
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 
 // UserRepository implements domain.UserRepository.
 type UserRepository struct {
@@ -85,18 +89,19 @@ func (r *UserRepository) GetCredentialsByEmail(ctx context.Context, email string
 // List implements domain.UserRepository; it also returns the total count for pagination.
 func (r *UserRepository) List(ctx context.Context, filter domain.UserListFilter) ([]*domain.User, int64, error) {
 	queries := r.db.Queries(ctx)
+	search := likeEscaper.Replace(filter.Search)
 
 	rows, err := queries.ListUsers(ctx, sqlc.ListUsersParams{
 		Limit:     filter.Limit,
 		Offset:    filter.Offset,
-		Search:    filter.Search,
+		Search:    search,
 		SortOrder: filter.SortOrder,
 	})
 	if err != nil {
 		return nil, 0, err
 	}
 
-	total, err := queries.CountUsers(ctx, filter.Search)
+	total, err := queries.CountUsers(ctx, search)
 	if err != nil {
 		return nil, 0, err
 	}

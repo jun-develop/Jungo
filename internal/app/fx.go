@@ -185,16 +185,14 @@ func fxErrorsOnly() fx.Option {
 	})
 }
 
-// provideGin initializes the Gin engine with trusted proxies.
-func provideGin(cfg *config.Config) *gin.Engine {
+// provideGin initializes the Gin engine with trusted proxies
+func provideGin(cfg *config.Config) (*gin.Engine, error) {
 	r := gin.New()
-	if len(cfg.Security.TrustedProxies) > 0 {
-		_ = r.SetTrustedProxies(cfg.Security.TrustedProxies)
-	} else {
-		_ = r.SetTrustedProxies(nil)
+	if err := r.SetTrustedProxies(cfg.Security.TrustedProxies); err != nil {
+		return nil, fmt.Errorf("SECURITY_TRUSTED_PROXIES: %w", err)
 	}
 
-	return r
+	return r, nil
 }
 
 // provideLoggers builds the app/http/sql/limiter named logging channels.

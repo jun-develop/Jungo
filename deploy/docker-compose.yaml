@@ -29,7 +29,7 @@ services:
     environment:
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
-      POSTGRES_DB: ${DB_NAME:-go_api_framework}
+      POSTGRES_DB: ${DB_NAME:-jungo}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:

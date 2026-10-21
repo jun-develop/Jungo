@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"errors"
 
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 
 	"github.com/jun-develop/junkit/security"
 	"github.com/jun-develop/junkit/storage"
@@ -18,11 +20,12 @@ type UserService struct {
 	storage  storage.Service
 	hasher   security.PasswordHasher
 	sessions domain.SessionRevoker
+	logger   *zap.Logger
 }
 
 // NewUserService creates a UserService.
-func NewUserService(repo domain.UserRepository, storageService storage.Service, hasher security.PasswordHasher, sessions domain.SessionRevoker) *UserService {
-	return &UserService{repo: repo, storage: storageService, hasher: hasher, sessions: sessions}
+func NewUserService(repo domain.UserRepository, storageService storage.Service, hasher security.PasswordHasher, sessions domain.SessionRevoker, logger *zap.Logger) *UserService {
+	return &UserService{repo: repo, storage: storageService, hasher: hasher, sessions: sessions, logger: logger}
 }
 
 // CreateUser creates a new user with hashed password.
@@ -35,6 +38,10 @@ func (s *UserService) CreateUser(ctx context.Context, input domain.CreateUserInp
 	passwordHash, err := s.hasher.Hash(input.Password)
 	stop()
 	if err != nil {
+		if errors.Is(err, security.ErrPasswordTooLong) {
+			return nil, domain.ErrPasswordTooLong
+		}
+
 		return nil, err
 	}
 
@@ -103,20 +110,20 @@ func (s *UserService) UploadAvatar(ctx context.Context, uid uuid.UUID, file doma
 
 	updated, err := s.repo.Update(ctx, uid, domain.UpdateUserInput{AvatarURL: &newURL})
 	if err != nil {
-		_ = s.storage.DeleteFile(ctx, newURL)
+		s.deleteFile(ctx, newURL)
 		return nil, err
 	}
 
 	if hasAvatar(user) {
-		_ = s.storage.DeleteFile(ctx, *user.AvatarURL)
+		s.deleteFile(ctx, *user.AvatarURL)
 	}
 
 	return updated, nil
 }
 
-// DeleteAvatar removes the avatar file and clears the avatar URL.
+// DeleteAvatar clears the avatar URL, then removes the file.
 //
-// Flow: get user -> delete file -> clear avatar URL in DB
+// Flow: get user -> clear avatar URL in DB -> delete file
 func (s *UserService) DeleteAvatar(ctx context.Context, uid uuid.UUID) (*domain.User, error) {
 	user, err := s.repo.GetByUUID(ctx, uid)
 	if err != nil {
@@ -127,16 +134,28 @@ func (s *UserService) DeleteAvatar(ctx context.Context, uid uuid.UUID) (*domain.
 		return user, nil
 	}
 
-	_ = s.storage.DeleteFile(ctx, *user.AvatarURL)
-
 	empty := ""
+	updated, err := s.repo.Update(ctx, uid, domain.UpdateUserInput{AvatarURL: &empty})
+	if err != nil {
+		return nil, err
+	}
 
-	return s.repo.Update(ctx, uid, domain.UpdateUserInput{AvatarURL: &empty})
+	s.deleteFile(ctx, *user.AvatarURL)
+
+	return updated, nil
 }
 
 // hasAvatar checks if the user has an avatar URL.
 func hasAvatar(user *domain.User) bool {
 	return user.AvatarURL != nil && *user.AvatarURL != ""
+}
+
+// deleteFile removes a stored file best-effort; a failure only leaves an orphaned file, so it is
+// logged rather than returned.
+func (s *UserService) deleteFile(ctx context.Context, fileURL string) {
+	if err := s.storage.DeleteFile(ctx, fileURL); err != nil {
+		s.logger.Error("user: delete stored file failed", zap.String("file_url", fileURL), zap.Error(err))
+	}
 }
 
 // revokeSessions ends the user's sessions. Its error is returned: until revoked, a cached session

@@ -30,8 +30,9 @@ type LoginGuardParams struct {
 	Telegram     telegram.Client `optional:"true"`
 }
 
-// LoginGuard implements domain.LoginGuard with fixed-window failure counters per IP
-// (short window and blacklist window) and per email. Only failures are counted.
+// LoginGuard implements domain.LoginGuard with fixed-window counters per IP (short window and
+// blacklist window) and per email. The short-window and email counters count every attempt up
+// front and are cleared on success; the blacklist counter counts failures only.
 type LoginGuard struct {
 	counters cache.Cache[int64]
 	cfg      config.AuthConfig
@@ -58,35 +59,33 @@ func NewLoginGuard(p LoginGuardParams) *LoginGuard {
 	}
 }
 
-// Check implements domain.LoginGuard; it returns ErrIPBlocked or ErrTooManyAttempts when blocked.
-func (g *LoginGuard) Check(ctx context.Context, ip, email string) error {
+// Attempt implements domain.LoginGuard; it returns ErrIPBlocked or ErrTooManyAttempts when blocked.
+// The email is reserved before the IP, so an attempt refused for its email does not use up the IP's
+// attempts. A refused attempt stays counted; with fixed windows that never extends a block.
+func (g *LoginGuard) Attempt(ctx context.Context, ip, email string) (int64, error) {
 	if n, _ := g.counters.Get(ctx, ipLongKey(ip)); n >= g.cfg.LoginBlacklistAttempts {
-		return domain.ErrIPBlocked
+		return 0, domain.ErrIPBlocked
 	}
 
-	if n, _ := g.counters.Get(ctx, ipShortKey(ip)); n >= g.cfg.LoginMaxAttempts {
-		return domain.ErrTooManyAttempts
+	if g.incr(ctx, emailKey(email), g.cfg.LoginBlockWindow) > g.cfg.LoginEmailMaxAttempts {
+		return 0, domain.ErrTooManyAttempts
 	}
 
-	if n, _ := g.counters.Get(ctx, emailKey(email)); n >= g.cfg.LoginEmailMaxAttempts {
-		return domain.ErrTooManyAttempts
+	short := g.incr(ctx, ipShortKey(ip), g.cfg.LoginBlockWindow)
+	if short > g.cfg.LoginMaxAttempts {
+		return 0, domain.ErrTooManyAttempts
 	}
 
-	return nil
+	return g.cfg.LoginMaxAttempts - short, nil
 }
 
-// RecordFailure implements domain.LoginGuard; it returns the IP's remaining attempts.
-func (g *LoginGuard) RecordFailure(ctx context.Context, ip, email string) int64 {
-	short := g.incr(ctx, ipShortKey(ip), g.cfg.LoginBlockWindow)
+// RecordFailure implements domain.LoginGuard; it counts the failure towards the IP blacklist.
+func (g *LoginGuard) RecordFailure(ctx context.Context, ip string) {
 	long := g.incr(ctx, ipLongKey(ip), g.cfg.LoginBlacklistWindow)
-	g.incr(ctx, emailKey(email), g.cfg.LoginBlockWindow)
-
 	if long == g.cfg.LoginBlacklistAttempts {
 		g.logger.Warn("login guard: IP blacklisted after repeated failures", zap.String("ip", ip), zap.Int64("failures", long))
 		g.notifyBlacklisted(ctx, ip, long)
 	}
-
-	return max(g.cfg.LoginMaxAttempts-short, 0)
 }
 
 // Succeeded implements domain.LoginGuard; it clears the short-window counters but keeps the

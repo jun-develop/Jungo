@@ -1,6 +1,8 @@
 package v1
 
 import (
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/jun-develop/junkit/middleware"
@@ -8,6 +10,7 @@ import (
 
 	authdomain "jungo/internal/features/auth/domain"
 	v1handler "jungo/internal/features/user/handler/v1"
+	"jungo/internal/router"
 )
 
 // UserRoutes registers the user feature's endpoints under a version group.
@@ -39,4 +42,18 @@ func (r *UserRoutes) Register(group *gin.RouterGroup) {
 	users.DELETE("/:uuid", r.handler.DeleteUser)
 	users.POST("/:uuid/avatar", r.handler.UploadAvatar)
 	users.DELETE("/:uuid/avatar", r.handler.DeleteAvatar)
+}
+
+// multipartOverhead is the room left in a body limit for multipart boundaries and part headers.
+const multipartOverhead = 64 << 10
+
+// BodyLimits implements router.BodyLimited; the avatar upload is larger than SECURITY_MAX_BODY_SIZE.
+func (r *UserRoutes) BodyLimits() []router.BodyLimit {
+	return []router.BodyLimit{
+		{
+			Method: http.MethodPost, 
+			Path: "/users/:uuid/avatar", 
+			MaxBytes: v1handler.MaxAvatarFileSize + multipartOverhead,
+		},
+	}
 }

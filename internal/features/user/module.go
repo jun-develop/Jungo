@@ -65,6 +65,7 @@ func registerTranslations(translator *i18n.Translator) {
 		i18n.LangEN: {
 			"user_not_found":       "User not found",
 			"email_already_exists": "This email is already registered",
+			"password_too_long":    "Password is too long (max 72 bytes; accented characters count as more than one)",
 			"invalid_avatar_file":  "Invalid avatar file (allowed: jpg, jpeg, png, webp; max 5MB)",
 			"user_created":         "User created successfully",
 			"user_retrieved":       "User retrieved successfully",

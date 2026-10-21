@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/jun-develop/junkit/security"
@@ -109,7 +111,7 @@ func newTestUserServiceWithRevoker(t *testing.T, repo domain.UserRepository, sto
 
 	revoker := &fakeSessionRevoker{}
 
-	return NewUserService(repo, storage, hasher, revoker), revoker
+	return NewUserService(repo, storage, hasher, revoker, zap.NewNop()), revoker
 }
 
 func strPtr(s string) *string { return &s }
@@ -159,6 +161,22 @@ func TestUserService_CreateUser(t *testing.T) {
 		_, err := svc.CreateUser(context.Background(), domain.CreateUserInput{Password: "whatever"})
 		if !errors.Is(err, wantErr) {
 			t.Fatalf("CreateUser() error = %v, want %v", err, wantErr)
+		}
+	})
+
+	t.Run("rejects a password under 72 characters but over 72 bytes as a client error", func(t *testing.T) {
+		repo := &fakeUserRepository{
+			CreateFunc: func(context.Context, domain.CreateUserInput, string) (*domain.User, error) {
+				t.Fatal("Create should not be called when hashing fails")
+				return nil, nil
+			},
+		}
+		svc := newTestUserService(t, repo, &fakeStorage{})
+
+		password := strings.Repeat("ệ", 30) // 30 characters, 90 bytes
+		_, err := svc.CreateUser(context.Background(), domain.CreateUserInput{Password: password})
+		if !errors.Is(err, domain.ErrPasswordTooLong) {
+			t.Fatalf("CreateUser() error = %v, want %v", err, domain.ErrPasswordTooLong)
 		}
 	})
 }
@@ -322,6 +340,29 @@ func TestUserService_DeleteAvatar(t *testing.T) {
 
 		if gotClearedTo == nil || *gotClearedTo != "" {
 			t.Errorf("Update() got AvatarURL %v, want a pointer to an empty string", gotClearedTo)
+		}
+	})
+
+	t.Run("keeps the file when clearing the avatar URL fails", func(t *testing.T) {
+		wantErr := errors.New("db unavailable")
+		repo := &fakeUserRepository{
+			GetByUUIDFunc: func(context.Context, uuid.UUID) (*domain.User, error) {
+				return &domain.User{UUID: userID, AvatarURL: strPtr("avatar.png")}, nil
+			},
+			UpdateFunc: func(context.Context, uuid.UUID, domain.UpdateUserInput) (*domain.User, error) {
+				return nil, wantErr
+			},
+		}
+		storage := &fakeStorage{}
+		svc := newTestUserService(t, repo, storage)
+
+		_, err := svc.DeleteAvatar(context.Background(), userID)
+		if !errors.Is(err, wantErr) {
+			t.Fatalf("DeleteAvatar() error = %v, want %v", err, wantErr)
+		}
+
+		if len(storage.deleteCalls) != 0 {
+			t.Errorf("DeleteFile calls = %v, want none (the record still points at the file)", storage.deleteCalls)
 		}
 	})
 

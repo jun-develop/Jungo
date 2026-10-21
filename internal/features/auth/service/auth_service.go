@@ -77,7 +77,7 @@ func NewAuthService(p Params) *AuthService {
 
 // Login authenticates email/password and issues a token pair.
 //
-// Flow: recaptcha -> brute-force check -> verify password -> check status -> create/rotate session
+// Flow: recaptcha -> reserve attempt -> verify password -> check status -> create/rotate session
 func (s *AuthService) Login(ctx context.Context, input domain.LoginInput) (*domain.TokenPair, error) {
 	meta := input.Metadata
 	email := input.Email
@@ -88,7 +88,8 @@ func (s *AuthService) Login(ctx context.Context, input domain.LoginInput) (*doma
 		}
 	}
 
-	if err := s.guard.Check(ctx, meta.IPAddress, email); err != nil {
+	remaining, err := s.guard.Attempt(ctx, meta.IPAddress, email)
+	if err != nil {
 		return nil, err
 	}
 
@@ -109,7 +110,8 @@ func (s *AuthService) Login(ctx context.Context, input domain.LoginInput) (*doma
 	stop()
 
 	if !valid {
-		if remaining := s.guard.RecordFailure(ctx, meta.IPAddress, email); remaining <= warnBelowRemaining {
+		s.guard.RecordFailure(ctx, meta.IPAddress)
+		if remaining <= warnBelowRemaining {
 			return nil, domain.ErrInvalidCredentialsWarning
 		}
 

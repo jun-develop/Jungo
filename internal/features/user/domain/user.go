@@ -91,7 +91,8 @@ type CreateUserInput struct {
 	PhoneNumber *string
 }
 
-// UpdateUserInput holds data for updating a user.
+// UpdateUserInput holds data for updating a user. A nil field is left unchanged; an empty
+// PhoneNumber or AvatarURL clears it.
 type UpdateUserInput struct {
 	FirstName   *string
 	LastName    *string

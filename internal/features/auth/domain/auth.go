@@ -209,8 +209,8 @@ type SessionCache interface {
 
 // LoginGuard throttles failed logins per IP and per email.
 type LoginGuard interface {
-	Check(ctx context.Context, ip, email string) error
-	RecordFailure(ctx context.Context, ip, email string) int64
+	Attempt(ctx context.Context, ip, email string) (int64, error)
+	RecordFailure(ctx context.Context, ip string)
 	Succeeded(ctx context.Context, ip, email string)
 }
 

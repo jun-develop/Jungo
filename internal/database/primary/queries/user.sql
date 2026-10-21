@@ -27,8 +27,8 @@ WHERE deleted_at IS NULL
 UPDATE users SET
     first_name   = COALESCE(sqlc.narg(first_name), first_name),
     last_name    = COALESCE(sqlc.narg(last_name), last_name),
-    phone_number = COALESCE(sqlc.narg(phone_number), phone_number),
-    avatar_url   = COALESCE(sqlc.narg(avatar_url), avatar_url),
+    phone_number = NULLIF(COALESCE(sqlc.narg(phone_number), phone_number), ''),
+    avatar_url   = NULLIF(COALESCE(sqlc.narg(avatar_url), avatar_url), ''),
     status       = COALESCE(sqlc.narg(status), status)
 WHERE uuid = sqlc.arg(uuid) AND deleted_at IS NULL
 RETURNING *;

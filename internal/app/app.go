@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 
@@ -28,7 +29,7 @@ func NewApp(cfg *config.Config, logger *zap.Logger, router *gin.Engine) *App {
 
 // Run starts the HTTP server on OnStart and shuts it down gracefully on OnStop.
 // The timeouts guard against Slowloris attacks.
-func (a *App) Run(lc fx.Lifecycle) {
+func (a *App) Run(lc fx.Lifecycle, shutdowner fx.Shutdowner) {
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%s", a.cfg.ServerPort),
 		Handler:           a.router,
@@ -45,9 +46,15 @@ func (a *App) Run(lc fx.Lifecycle) {
 				zap.String("env", a.cfg.Environment),
 			)
 
+			ln, err := net.Listen("tcp", srv.Addr)
+			if err != nil {
+				return fmt.Errorf("server: listen on %s: %w", srv.Addr, err)
+			}
+
 			go func() {
-				if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-					a.logger.Error("server: start failed", zap.Error(err))
+				if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+					a.logger.Error("server: serve failed", zap.Error(err))
+					_ = shutdowner.Shutdown(fx.ExitCode(1))
 				}
 			}()
 

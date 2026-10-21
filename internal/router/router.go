@@ -2,7 +2,9 @@ package router
 
 import (
 	"compress/gzip"
+	"fmt"
 	"net/http"
+	"path"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/fx"
@@ -31,6 +33,19 @@ type VersionedRoutes interface {
 	Versioned
 }
 
+// BodyLimit raises the request body limit (SECURITY_MAX_BODY_SIZE) for one route, e.g. an upload.
+// Path is relative to the group Register receives, exactly as passed to group.POST/PUT/...
+type BodyLimit struct {
+	Method   string
+	Path     string
+	MaxBytes int64
+}
+
+// BodyLimited is implemented by Routes that have routes needing a larger body limit.
+type BodyLimited interface {
+	BodyLimits() []BodyLimit
+}
+
 // Params defines dependencies for route registration.
 type Params struct {
 	fx.In
@@ -44,9 +59,12 @@ type Params struct {
 	Responder     response.Responder
 }
 
-// RegisterAll sets up global middlewares, system routes, and feature routes.
-func RegisterAll(p Params) {
-	registerGlobalMiddlewares(p)
+// RegisterAll sets up global middlewares, system routes, and feature routes. It fails when a
+// BodyLimit names a route that was never registered, so a typo cannot silently keep the default.
+func RegisterAll(p Params) error {
+	// Filled while routes register below; Payload only reads it per request, after startup.
+	bodyLimits := make(map[string]int64)
+	registerGlobalMiddlewares(p, bodyLimits)
 	p.Router.HandleMethodNotAllowed = true
 
 	p.Router.NoRoute(func(ctx *gin.Context) {
@@ -78,11 +96,30 @@ func RegisterAll(p Params) {
 		}
 
 		route.Register(target)
+
+		if bl, ok := route.(BodyLimited); ok {
+			for _, l := range bl.BodyLimits() {
+				bodyLimits[middleware.RouteKey(l.Method, path.Join(target.BasePath(), l.Path))] = l.MaxBytes
+			}
+		}
 	}
+
+	registered := make(map[string]bool)
+	for _, r := range p.Router.Routes() {
+		registered[middleware.RouteKey(r.Method, r.Path)] = true
+	}
+
+	for key := range bodyLimits {
+		if !registered[key] {
+			return fmt.Errorf("router: body limit for unregistered route %q", key)
+		}
+	}
+
+	return nil
 }
 
 // registerGlobalMiddlewares attaches global middlewares to the router.
-func registerGlobalMiddlewares(p Params) {
+func registerGlobalMiddlewares(p Params, bodyLimits map[string]int64) {
 	cfg := p.Config
 	debug := middleware.TracerDebugOptions{
 		QueryKey:     cfg.TracerDebugKey,
@@ -107,12 +144,14 @@ func registerGlobalMiddlewares(p Params) {
 			MaxAge:           cfg.CORS.MaxAge,
 		}),
 		middleware.Gzip(middleware.GzipOptions{Level: gzip.BestSpeed}),
-		middleware.Payload(middleware.PayloadOptions{
-			MaxBodySize: cfg.Security.MaxRequestBodySize,
-		}, p.Responder),
 		middleware.AccessLog(p.HTTPLogger, middleware.AccessLogOptions{
 			SkipIf: debug.Matches,
 		}),
+		middleware.Recover(p.HTTPLogger, p.Notifier, p.Responder, middleware.RecoverOptions{Debug: debug}),
+		middleware.Payload(middleware.PayloadOptions{
+			MaxBodySize: cfg.Security.MaxRequestBodySize,
+			RouteLimits: bodyLimits,
+		}, p.Responder),
 		middleware.Limiter(middleware.LimiterOptions{
 			RequestsPerSecond: cfg.Limiter.RequestsPerSecond,
 			Burst:             cfg.Limiter.Burst,
@@ -127,6 +166,5 @@ func registerGlobalMiddlewares(p Params) {
 			"id":   middleware.IsID,
 			"slug": middleware.IsSlug,
 		}, p.Responder),
-		middleware.Recover(p.HTTPLogger, p.Notifier, p.Responder, middleware.RecoverOptions{Debug: debug}),
 	)
 }

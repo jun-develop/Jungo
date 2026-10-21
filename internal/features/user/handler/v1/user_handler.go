@@ -16,8 +16,9 @@ import (
 	v1dto "jungo/internal/features/user/dto/v1"
 )
 
-// maxAvatarFileSize caps an uploaded avatar at 5MB.
-const maxAvatarFileSize = 5 << 20
+// MaxAvatarFileSize caps an uploaded avatar at 5MB; the route's body limit (see UserRoutes.BodyLimits)
+// is derived from it.
+const MaxAvatarFileSize = 5 << 20
 
 // allowedAvatarExtensions are the file extensions UploadAvatar accepts.
 var allowedAvatarExtensions = map[string]bool{
@@ -139,7 +140,7 @@ func (h *UserHandler) UploadAvatar(ctx *gin.Context) {
 		return
 	}
 
-	if fileHeader.Size > maxAvatarFileSize {
+	if fileHeader.Size > MaxAvatarFileSize {
 		h.responder.Send(ctx, http.StatusBadRequest, "invalid_avatar_file")
 		return
 	}

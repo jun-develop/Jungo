@@ -96,6 +96,18 @@ WHERE user_id = $1 AND type = 2 AND revoked_at IS NULL AND expires_at > now()
 ORDER BY created_at DESC;
 
 -- name: CleanupTokens :execrows
-DELETE FROM auth_tokens
-WHERE expires_at < sqlc.arg(before)
-   OR (revoked_at IS NOT NULL AND revoked_at < sqlc.arg(before));
+-- A live session (a family with an unexpired, unrevoked token) keeps its first row, which
+-- GetSessionByHash reads the session start from, and its latest access token, which
+-- GetSessionByHash joins.
+DELETE FROM auth_tokens t
+WHERE (t.expires_at < sqlc.arg(before) OR (t.revoked_at IS NOT NULL AND t.revoked_at < sqlc.arg(before)))
+  AND NOT (
+      t.id IN (
+          (SELECT min(f.id) FROM auth_tokens f WHERE f.family_uuid = t.family_uuid),
+          (SELECT max(f.id) FROM auth_tokens f WHERE f.family_uuid = t.family_uuid AND f.type = 1)
+      )
+      AND EXISTS (
+          SELECT 1 FROM auth_tokens l
+          WHERE l.family_uuid = t.family_uuid AND l.revoked_at IS NULL AND l.expires_at > now()
+      )
+  );

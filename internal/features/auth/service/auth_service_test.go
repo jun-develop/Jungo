@@ -263,10 +263,28 @@ func (r *fakeRepository) CleanupTokens(_ context.Context, before time.Time) (int
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	// A live family keeps its first row and its latest access token.
+	now := r.now()
+	live, first, lastAccess := map[uuid.UUID]bool{}, map[uuid.UUID]*fakeToken{}, map[uuid.UUID]*fakeToken{}
+	for _, t := range r.tokens {
+		if t.revokedAt == nil && now.Before(t.expiresAt) {
+			live[t.family] = true
+		}
+
+		if first[t.family] == nil {
+			first[t.family] = t
+		}
+
+		if t.typ == domain.TokenTypeAccess {
+			lastAccess[t.family] = t
+		}
+	}
+
 	kept := r.tokens[:0]
 	var deleted int64
 	for _, t := range r.tokens {
-		if t.expiresAt.Before(before) || (t.revokedAt != nil && t.revokedAt.Before(before)) {
+		protected := live[t.family] && (t == first[t.family] || t == lastAccess[t.family])
+		if !protected && (t.expiresAt.Before(before) || (t.revokedAt != nil && t.revokedAt.Before(before))) {
 			deleted++
 			continue
 		}
@@ -598,6 +616,33 @@ func TestLogin_BruteForceWarnsThenBlocks(t *testing.T) {
 	wantErr(t, err, domain.ErrTooManyAttempts)
 }
 
+func TestLogin_ConcurrentAttemptsCannotExceedLimit(t *testing.T) {
+	e := newTestEnv(t)
+	bad := domain.LoginInput{Email: e.user.email, Password: "wrong", Metadata: browser}
+
+	var (
+		wg     sync.WaitGroup
+		mu     sync.Mutex
+		passed int
+	)
+	for range 20 {
+		wg.Go(func() {
+			_, err := e.svc.Login(context.Background(), bad)
+			if !errors.Is(err, domain.ErrTooManyAttempts) {
+				mu.Lock()
+				passed++
+				mu.Unlock()
+			}
+		})
+	}
+
+	wg.Wait()
+
+	if passed != 5 {
+		t.Errorf("%d concurrent attempts reached the password check, want exactly LoginMaxAttempts (5)", passed)
+	}
+}
+
 func TestLogin_SuccessClearsShortWindow(t *testing.T) {
 	e := newTestEnv(t)
 	bad := domain.LoginInput{Email: e.user.email, Password: "wrong", Metadata: browser}
@@ -920,4 +965,34 @@ func TestCleanupTokens(t *testing.T) {
 	}
 
 	mustAuthenticate(t, e, fresh.AccessToken)
+}
+
+func TestCleanupTokens_KeepsLiveSessionStartAndLatestAccess(t *testing.T) {
+	e := newTestEnv(t)
+	started := e.clock.Now()
+	pair := e.login(t, browser)
+
+	// Refresh daily for 9 days: the first pair is revoked well past the 7-day retention.
+	for range 9 {
+		e.clock.Advance(23 * time.Hour)
+		next, err := e.svc.Refresh(context.Background(), pair.RefreshToken, browser)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		pair = next
+	}
+
+	if _, err := e.svc.CleanupTokens(context.Background(), 7*24*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+
+	details, err := e.svc.GetTokenDetails(context.Background(), pair.RefreshToken)
+	if err != nil {
+		t.Fatalf("GetTokenDetails() error = %v, want the live session to survive cleanup", err)
+	}
+
+	if !details.Session.CreatedAt.Equal(started) {
+		t.Errorf("session CreatedAt = %v, want %v (the login time)", details.Session.CreatedAt, started)
+	}
 }

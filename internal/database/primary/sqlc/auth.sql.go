@@ -14,11 +14,23 @@ import (
 )
 
 const cleanupTokens = `-- name: CleanupTokens :execrows
-DELETE FROM auth_tokens
-WHERE expires_at < $1
-   OR (revoked_at IS NOT NULL AND revoked_at < $1)
+DELETE FROM auth_tokens t
+WHERE (t.expires_at < $1 OR (t.revoked_at IS NOT NULL AND t.revoked_at < $1))
+  AND NOT (
+      t.id IN (
+          (SELECT min(f.id) FROM auth_tokens f WHERE f.family_uuid = t.family_uuid),
+          (SELECT max(f.id) FROM auth_tokens f WHERE f.family_uuid = t.family_uuid AND f.type = 1)
+      )
+      AND EXISTS (
+          SELECT 1 FROM auth_tokens l
+          WHERE l.family_uuid = t.family_uuid AND l.revoked_at IS NULL AND l.expires_at > now()
+      )
+  )
 `
 
+// A live session (a family with an unexpired, unrevoked token) keeps its first row, which
+// GetSessionByHash reads the session start from, and its latest access token, which
+// GetSessionByHash joins.
 func (q *Queries) CleanupTokens(ctx context.Context, before time.Time) (int64, error) {
 	result, err := q.db.Exec(ctx, cleanupTokens, before)
 	if err != nil {

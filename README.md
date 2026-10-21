@@ -205,6 +205,8 @@ All configuration is environment variables in `.env` (created by `make app-init`
 | `API_ENVIRONMENT` | `development` enables demo seeding and dev-friendly defaults |
 | `API_SERVER_PORT` | Port the API listens on (default `8080`) |
 | `DB_*` | Postgres connection + pool tuning |
+| `SECURITY_MAX_BODY_SIZE` | Default largest request body in bytes (2 MB); a route that needs more (e.g. the 5 MB avatar upload) declares its own limit — see [Larger request bodies](#larger-request-bodies-uploads) |
+| `SECURITY_TRUSTED_PROXIES` | **Set this behind a reverse proxy / load balancer** (comma-separated IPs or CIDRs). Empty = `X-Forwarded-For` is ignored, so every client appears as the proxy's IP and they all share one rate limit and one failed-login blacklist (8 failures would lock everyone out for 24h). An invalid entry fails startup |
 | `AUTH_*` | Login, tokens and brute-force limits — see [Authentication › Configuration](#authentication-configuration) |
 | `TRACER_DEBUG_KEY` / `TRACER_DEBUG_VALUE` | Query-param name/value that, with the `X-Internal-Secret: <AUTH_INTERNAL_SECRET>` header, unlocks the [debug dashboard](#7-live-debug-dashboard) |
 | `CACHE_ENABLED` | `cache` package is a no-op unless this is `true` (and Redis is started with `WITH=cache`) |
@@ -589,14 +591,16 @@ cmd/api/main.go
 Global middleware order (outermost first — see `internal/router/router.go`):
 
 ```
-TracerDebug → Security → Trace → CORS → Payload → Limiter → RoutePatterns → Recover → (your handler)
+TracerDebug → Security → Trace → CORS → Gzip → AccessLog → Recover → Payload → Limiter → RoutePatterns → (your handler)
 ```
 
 Each has a reason for its position (documented in code): `TracerDebug` must be outermost so it can
-catch panics re-raised by `Recover` when running in debug mode; `Limiter` runs before `Recover` so
-a rate-limited request never reaches handler code; `RoutePatterns` rejects a malformed `:uuid`,
-`:id` or `:slug` with 404 before auth or the handler runs — so a param named `:id` must always be a
-positive integer (use another name, e.g. `:key`, for free-form values); `Recover` is last so it wraps every handler.
+catch panics re-raised by `Recover` when running in debug mode; `AccessLog` sits inside `Gzip` so it
+logs uncompressed bodies, and outside `Recover` because it only logs once `c.Next()` returns — so a
+panic must be recovered below it to still be logged; `Recover` comes before everything else so a
+panic in `Payload`, `Limiter`, `RoutePatterns` or a handler still gets a JSON 500; `RoutePatterns`
+rejects a malformed `:uuid`, `:id` or `:slug` with 404 before auth or the handler runs — so a param
+named `:id` must always be a positive integer (use another name, e.g. `:key`, for free-form values).
 
 ---
 
@@ -680,6 +684,27 @@ group.Use(middleware.BearerAuth(r.authenticator, r.responder, middleware.BearerA
 // handler: who is calling?
 identity := security.MustGetIdentity[*authdomain.Identity](c)
 ```
+
+### Larger request bodies (uploads)
+
+Every body is capped at `SECURITY_MAX_BODY_SIZE` (2 MB) by the global `Payload` middleware, which
+runs **before** any route middleware — so a limit set inside a route group can never raise it.
+Instead, have your routes type implement `router.BodyLimited`, as `user_router.go` does for the
+5 MB avatar upload:
+
+```go
+// BodyLimits implements router.BodyLimited; Path is relative to the group Register receives.
+func (r *ProductRoutes) BodyLimits() []router.BodyLimit {
+	return []router.BodyLimit{
+		{Method: http.MethodPost, Path: "/products/:uuid/image", MaxBytes: 10<<20 + 64<<10}, // file + multipart overhead
+	}
+}
+```
+
+Only those routes get the larger limit; every other route keeps 2 MB. A limit for a route that
+does not exist (typo, wrong method) stops the app at startup. Keep a file-size check in the handler
+as well (`fileHeader.Size`), and leave room above it for multipart boundaries and headers. The
+whole body is still read into memory, so size limits for real traffic, not "just in case".
 
 ---
 
@@ -1111,10 +1136,13 @@ r.Router.Use(
 	middleware.Security(),
 	middleware.Trace(middleware.TraceOptions{Version: cfg.Version, Environment: cfg.Environment}),
 	middleware.CORS(middleware.CORSOptions{AllowOrigins: cfg.CORS.AllowOrigins}),
-	middleware.Payload(middleware.PayloadOptions{MaxBodySize: cfg.Security.MaxRequestBodySize}, r.Responder),
-	middleware.Limiter(middleware.LimiterOptions{RequestsPerSecond: 10, Burst: 30}, r.Logger, r.Responder, r.Notifier),
+	middleware.Gzip(middleware.GzipOptions{Level: gzip.BestSpeed}),
+	middleware.AccessLog(r.HTTPLogger, middleware.AccessLogOptions{SkipIf: debug.Matches}),
+	middleware.Recover(r.HTTPLogger, r.Notifier, r.Responder, middleware.RecoverOptions{Debug: debug}),
+	// RouteLimits: per-route larger limits collected from router.BodyLimited routes.
+	middleware.Payload(middleware.PayloadOptions{MaxBodySize: cfg.Security.MaxRequestBodySize, RouteLimits: bodyLimits}, r.Responder),
+	middleware.Limiter(middleware.LimiterOptions{RequestsPerSecond: 10, Burst: 30}, r.LimiterLogger, r.Responder, r.Notifier),
 	middleware.RoutePatterns(map[string]func(string) bool{"uuid": middleware.IsUUID, "id": middleware.IsID, "slug": middleware.IsSlug}, r.Responder),
-	middleware.Recover(r.Logger, r.Notifier, r.Responder, middleware.RecoverOptions{Debug: debug}),
 )
 ```
 

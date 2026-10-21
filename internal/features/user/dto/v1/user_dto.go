@@ -30,11 +30,11 @@ func ToCreateUserInput(req CreateUserRequest) domain.CreateUserInput {
 	}
 }
 
-// UpdateUserRequest is the request body for PATCH /users/:uuid.
+// UpdateUserRequest is the request body for PATCH /users/:uuid; "phone_number": "" clears the phone.
 type UpdateUserRequest struct {
 	FirstName   *string `json:"first_name" binding:"omitempty,min=2,max=50"`
 	LastName    *string `json:"last_name" binding:"omitempty,min=2,max=50"`
-	PhoneNumber *string `json:"phone_number" binding:"omitempty,phone_advanced"`
+	PhoneNumber *string `json:"phone_number" binding:"omitzero,phone_advanced"`
 	Status      *string `json:"status" binding:"omitempty,oneof=active inactive"`
 }
 
@@ -87,18 +87,13 @@ type UserResponse struct {
 
 // NewUserResponse converts domain.User to UserResponse.
 func NewUserResponse(u *domain.User) UserResponse {
-	avatarURL := u.AvatarURL
-	if avatarURL != nil && *avatarURL == "" {
-		avatarURL = nil
-	}
-
 	return UserResponse{
 		UUID:        u.UUID,
 		Email:       u.Email,
 		FirstName:   u.FirstName,
 		LastName:    u.LastName,
 		PhoneNumber: u.PhoneNumber,
-		AvatarURL:   avatarURL,
+		AvatarURL:   u.AvatarURL,
 		Status:      domain.UserStatusName(u.Status),
 		Active:      u.IsActive(),
 		CreatedAt:   u.CreatedAt,
